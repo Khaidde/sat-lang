@@ -3,6 +3,8 @@
 
 #include <set>
 #include <vector>
+#include <fstream>
+#include <iostream>
 #include "src/sat_syntax_tree.hpp"
 // take arbitrary formula of AND, NOT, OR, and literals, and convert to CNF form using Tseitin transformation
 
@@ -163,6 +165,49 @@ std::vector<std::vector<int>> to_cnf(SAT_Expression *expression)
     return cnf;
 }
 
+// Helper function to calculate the number of variables
+int getNumberOfVariables(const std::vector<std::vector<int>> &cnf)
+{
+    int maxVariable = 0;
+
+    for (const auto &clause : cnf)
+    {
+        for (const auto &literal : clause)
+        {
+            int variable = std::abs(literal);
+            maxVariable = std::max(maxVariable, variable);
+        }
+    }
+
+    return maxVariable;
+}
+
+void outputDimacs(const std::vector<std::vector<int>> &cnf, std::string filename)
+{
+    std::ofstream outFile(filename);
+
+    if (!outFile)
+    {
+        std::cerr << "Error: Could not open file for writing: " << filename << std::endl;
+        return;
+    }
+
+    // Write the DIMACS header
+    outFile << "p cnf " << getNumberOfVariables(cnf) << " " << cnf.size() << std::endl;
+
+    // Write each clause to the file
+    for (const auto &clause : cnf)
+    {
+        for (const auto &literal : clause)
+        {
+            outFile << literal << " ";
+        }
+        outFile << "0\n"; // Terminate the clause with '0'
+    }
+
+    outFile.close();
+}
+
 int main()
 {
     // std::unordered_map<SAT_Expression, int> expressionMap;
@@ -189,6 +234,7 @@ int main()
 
     // cnf:
     std::vector<std::vector<int>> clauses = to_cnf(&expression_combined3);
+    outputDimacs(clauses, "output.dimacs");
 
     std::cout << "CNF:\n";
     // cnf.display();
