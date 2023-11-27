@@ -20,9 +20,14 @@ object House {
   Pet
 }
 
-House neighborhood[5][123]
+House neighborhood[16][16]
 
-function is_sat() {
+function is_sat {
   x = !true && false || !true
 
+  if false || !true {
+    y = neighborhood[4][1][Color][Red]
+  }
+  y = neighborhood[4][1][0][Green]
+  return true
 }
