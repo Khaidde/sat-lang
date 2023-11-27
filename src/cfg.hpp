@@ -11,6 +11,7 @@ namespace slang {
   pick(None,  "'None'"), \
   pick(False, "False"), \
   pick(True,  "True"), \
+  pick(XVar,  "XVar"), \
   pick(Not,   "Not"), \
   pick(And,   "And"), \
   pick(Or,    "Or"),
@@ -30,6 +31,7 @@ struct BinaryExpression {
 struct Expression {
   ExpressionKind::Enum kind;
   union {
+    i32 xvar;
     UnaryExpression unary;
     BinaryExpression binary;
   };
@@ -57,6 +59,7 @@ struct Instruction {
 
 // clang-format off
 #define TERMINATOR_KIND(pick) \
+  pick(None,   "None"), \
   pick(Goto,   "Goto"), \
   pick(Branch, "Branch"), \
   pick(Return, "Return"),
@@ -81,6 +84,7 @@ struct ReturnTerminator {
 };
 
 struct BasicBlock {
+  i32 id;
   std::vector<Instruction> insts;
 
   TerminatorKind::Enum terminator_kind;

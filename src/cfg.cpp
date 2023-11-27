@@ -1,51 +1,81 @@
 #include "cfg.hpp"
 
+#include <vector>
+
 namespace slang {
 
-void dump_expression(CFG *cfg, Expression *expression, i32 depth) {
-  printf("      %*.s%s", depth, " ", ExpressionKind::to_string[expression->kind]);
+bool has_visisted(BasicBlock *bb, std::vector<BasicBlock *> *visited) {
+  for (u32 i = 0; i < visited->size(); ++i) {
+    if (visited->at(i) == bb) return true;
+  }
+  return false;
+}
+
+void dump_expression(Expression *expression) {
   switch (expression->kind) {
-  case ExpressionKind::False:
-  case ExpressionKind::True: printf("\n"); break;
+  case ExpressionKind::False: printf("false"); break;
+  case ExpressionKind::True: printf("true"); break;
+  case ExpressionKind::XVar: printf("x%d", expression->xvar); break;
   case ExpressionKind::Not:
-    printf(" (\n");
-    dump_expression(cfg, expression->unary.inner, depth + 2);
-    printf("      %*.s)\n", depth, " ");
+    printf("!");
+    dump_expression(expression->unary.inner);
     break;
   case ExpressionKind::And:
   case ExpressionKind::Or:
-    printf(" (\n");
-    dump_expression(cfg, expression->binary.left, depth + 2);
-    dump_expression(cfg, expression->binary.right, depth + 2);
-    printf("      %*.s)\n", depth, " ");
+    printf("(");
+    dump_expression(expression->binary.left);
+    printf(" %c ", expression->kind == ExpressionKind::And ? '^' : 'v');
+    dump_expression(expression->binary.right);
+    printf(")");
     break;
-  default: assert(!"TODO: unimplemented cfg dump expression"); break;
+  default: assert(!"TODO: unimplemented cfg dump expression straight"); break;
   }
-  (void)cfg;
 }
 
-void dump_inst(CFG *cfg, Instruction *inst) {
-  printf("  %s\n", InstructionKind::to_string[inst->kind]);
-  switch (inst->kind) {
-  case InstructionKind::Assign:
-    printf("    ");
-    for (i32 i = 0; i < inst->assign.variable_name.length; ++i) {
-      printf("%c", cfg->file_data[inst->assign.variable_name.index + i]);
+void dump_cfg(CFG *cfg) {
+  printf("digraph {\n");
+  std::vector<BasicBlock *> visited;
+  std::vector<BasicBlock *> worklist;
+  worklist.push_back(cfg->entry_bb);
+  while (worklist.size()) {
+    auto *bb = worklist.back();
+    worklist.pop_back();
+    visited.push_back(bb);
+
+    printf("  %d [shape=record,label=\"bb%d", bb->id, bb->id);
+    for (auto &inst : bb->insts) {
+      assert(inst.kind == InstructionKind::Assign);
+      printf("\\n");
+      for (i32 i = 0; i < inst.assign.variable_name.length; ++i) {
+        printf("%c", cfg->file_data[inst.assign.variable_name.index + i]);
+      }
+      printf(" = ");
+      dump_expression(inst.assign.right_value_expression);
     }
-    printf(" = \n");
-    dump_expression(cfg, inst->assign.right_value_expression, 0);
-    break;
-  default: break;
+    switch (bb->terminator_kind) {
+    case TerminatorKind::Goto:
+      printf("\"]\n");
+      if (!has_visisted(bb->go.goto_bb, &visited)) worklist.push_back(bb->go.goto_bb);
+      printf("  %d->%d\n", bb->id, bb->go.goto_bb->id);
+      break;
+    case TerminatorKind::Branch:
+      printf("\\nbr ");
+      dump_expression(bb->branch.condition_expression);
+      printf("}\"]\n");
+      if (!has_visisted(bb->branch.then_bb, &visited)) worklist.push_back(bb->branch.then_bb);
+      printf("  %d->%d [label=\"1\"]\n", bb->id, bb->branch.then_bb->id);
+      if (!has_visisted(bb->branch.else_bb, &visited)) worklist.push_back(bb->branch.else_bb);
+      printf("  %d->%d\n", bb->id, bb->branch.else_bb->id);
+      break;
+    case TerminatorKind::Return:
+      printf("\\nreturn ");
+      dump_expression(bb->ret.return_expression);
+      printf("\"]\n");
+      break;
+    default: assert(!"Unreachable"); break;
+    }
   }
+  printf("}\n");
 }
-
-void dump_block(CFG *cfg, BasicBlock *basic_block) {
-  printf("BB:\n");
-  for (auto &inst : basic_block->insts) {
-    dump_inst(cfg, &inst);
-  }
-}
-
-void dump_cfg(CFG *cfg) { dump_block(cfg, cfg->entry_bb); }
 
 } // namespace slang
