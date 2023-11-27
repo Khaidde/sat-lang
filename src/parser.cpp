@@ -247,6 +247,19 @@ Expression *parse_operand(Lexer *l) {
     if (!not_expression->unary.inner) return nullptr;
     return not_expression;
   }
+  case TokenKind::Ident: {
+    Span name = peek(l)->value;
+    (void)name;
+    if (!next(l)) return nullptr; // next 'ident'
+
+    if (peek(l)->kind == TokenKind::LSquare) {
+      // TODO: parse as global thingy
+    } else {
+      // This is a local variable
+    }
+    return nullptr; // TODO: delete this
+    break;
+  }
   default: error("line %d: unexpected expression operand parsing\n", l->line); return nullptr;
   }
 }

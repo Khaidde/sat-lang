@@ -25,4 +25,5 @@ House neighborhood[5][123]
 function is_sat() {
   x = !true && false || !true
 
+  y = neighborhood[1]
 }
