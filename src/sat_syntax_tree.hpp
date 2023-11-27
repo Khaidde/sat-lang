@@ -26,7 +26,7 @@ struct SAT_Expression
 
     // Constructor for a non-literal node
     SAT_Expression(Operator operatorType, SAT_Expression *left, SAT_Expression *right)
-        : op(operatorType), literal(-1), leftChild(left), rightChild(right)
+        : op(operatorType), literal(-999999999), leftChild(left), rightChild(right)
     {
         // assert if op is NOT that left child is null
         if (op == Operator::NOT)
