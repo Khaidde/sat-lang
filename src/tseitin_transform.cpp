@@ -36,7 +36,6 @@ int convert_to_prop(SAT_Expression *expression, std::unordered_map<SAT_Expressio
     if (it != expressionMap.end()) {
       // already have a mapping
       int value = it->second;
-      std::cout << "reused mapping " << value << std::endl;
       return value;
     } else {
       expressionMap[*expression] = nextUnusedProp;

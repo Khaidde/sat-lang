@@ -1,4 +1,3 @@
-
 property Color {
   Red
   Blue

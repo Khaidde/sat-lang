@@ -29,6 +29,7 @@ namespace slang {
   pick(If,       "if"), \
   pick(Else,     "else"), \
   pick(For,      "for"), \
+  pick(In,       "in"), \
   pick(Return,   "return"), \
   pick(Err,      "'error'"), \
   pick(Eof,      "'end of file'"),
@@ -62,6 +63,9 @@ struct Parser {
 
   i32 local_variable_count;
   std::unordered_map<std::string, i32> local_variable_map;
+
+  i32 index_variable_count;
+  std::unordered_map<std::string, i32> index_variable_map;
 
   i32 block_count;
 
@@ -127,6 +131,7 @@ TokenKind::Enum keywords[] {
   TokenKind::If,
   TokenKind::Else,
   TokenKind::For,
+  TokenKind::In,
   TokenKind::Return,
 };
 const i32 num_keywords = sizeof(keywords) / sizeof(TokenKind::Enum);
@@ -270,7 +275,12 @@ Expression *parse_operand(Parser *p) {
 
       i32 expected_dimensions = (i32)grid_ptr->dimensions.size();
 
-      i32 actual_variable_index      = grid_ptr->variable_start_index;
+      Expression *grid_ref          = new Expression();
+      grid_ref->kind                = ExpressionKind::GridRef;
+      grid_ref->grid_start_variable = grid_ptr->variable_start_index;
+
+      Expression *result = grid_ref;
+
       i32 accumulated_dimension_size = 1;
       i32 dimension_index            = 0;
       for (;;) {
@@ -283,62 +293,76 @@ Expression *parse_operand(Parser *p) {
           return nullptr;
         }
 
-        int index_value = -1;
+        Expression *index_expression           = new Expression();
+        index_expression->kind                 = ExpressionKind::Index;
+        index_expression->index.dimension_size = accumulated_dimension_size;
+        index_expression->index.inner          = result;
+        result                                 = index_expression;
+
         switch (peek(p)->kind) {
         case TokenKind::Intlit:
-          index_value = peek(p)->intlit;
+          index_expression->index.constant_index = peek(p)->intlit;
+          index_expression->index.is_constant    = true;
           if (!next(p)) return nullptr; // next 'intlit'
           break;
         case TokenKind::Ident: {
-          Span property_name               = peek(p)->value;
-          std::string property_name_string = span_to_string(p, property_name);
+          Span index_name               = peek(p)->value;
+          std::string index_name_string = span_to_string(p, index_name);
           if (!next(p)) return nullptr; // next 'intlit'
 
-          auto it = p->property_map.find(property_name_string);
-          if (it == p->property_map.end()) {
-            error("line %d: could not find property %s\n", p->line, property_name_string.c_str());
-            return nullptr;
-          }
+          if (check_peek(p, TokenKind::Dot)) {
+            if (!next(p)) return nullptr; // next .
 
-          Property *property = &p->properties[(u32)it->second];
-
-          if (!check_peek(p, TokenKind::Dot)) {
-            error("line %d: expected . after property name", p->line);
-            return nullptr;
-          }
-          if (!next(p)) return nullptr; // next .
-
-          if (!check_peek(p, TokenKind::Ident)) {
-            error("line %d: expected property value name after .", p->line);
-            return nullptr;
-          }
-          Span value_name               = peek(p)->value;
-          std::string value_name_string = span_to_string(p, value_name);
-          if (!next(p)) return nullptr; // next 'ident'
-
-          for (i32 i = 0; i < (i32)property->values.size(); ++i) {
-            if (is_span_equal(p, value_name, property->values[(u32)i])) {
-              index_value = i;
-              break;
+            auto it = p->property_map.find(index_name_string);
+            if (it == p->property_map.end()) {
+              error("line %d: could not find property %s\n", p->line, index_name_string.c_str());
+              return nullptr;
             }
-          }
-          if (index_value == -1) {
-            error("line %d: could not find value %s in property %s \n", p->line, value_name_string.c_str(),
-                  property_name_string.c_str());
-            return nullptr;
+
+            Property *property = &p->properties[(u32)it->second];
+
+            if (!check_peek(p, TokenKind::Ident)) {
+              error("line %d: expected property value name after .", p->line);
+              return nullptr;
+            }
+            Span value_name               = peek(p)->value;
+            std::string value_name_string = span_to_string(p, value_name);
+            if (!next(p)) return nullptr; // next 'ident'
+
+            for (i32 i = 0; i < (i32)property->values.size(); ++i) {
+              if (is_span_equal(p, value_name, property->values[(u32)i])) {
+                index_expression->index.constant_index = i;
+                break;
+              }
+            }
+            if (index_expression->index.constant_index == -1) {
+              error("line %d: could not find value %s in property %s \n", p->line, value_name_string.c_str(),
+                    index_name_string.c_str());
+              return nullptr;
+            }
+            index_expression->index.is_constant = true;
+          } else {
+
+            auto it = p->index_variable_map.find(index_name_string);
+            if (it == p->index_variable_map.end()) {
+              error("line %d: could not find index variable %s\n", p->line, index_name_string.c_str());
+              return nullptr;
+            }
+
+            index_expression->index.indexvar    = it->second;
+            index_expression->index.is_constant = false;
           }
           break;
         }
         default: error("line %d: expected integer literal or property value for grid index\n", p->line); return nullptr;
         }
-        assert(index_value != -1);
 
         i32 dimension_size = grid_ptr->dimensions[(u32)dimension_index];
-        if (index_value >= dimension_size) {
-          error("line %d: access of %d out of bounds of dimension size %d\n", p->line, index_value, dimension_size);
+        if (index_expression->index.is_constant && index_expression->index.constant_index >= dimension_size) {
+          error("line %d: access of %d out of bounds of dimension size %d\n", p->line,
+                index_expression->index.constant_index, dimension_size);
           return nullptr;
         }
-        actual_variable_index += accumulated_dimension_size * index_value;
         accumulated_dimension_size *= dimension_size;
 
         if (!check_peek(p, TokenKind::RSquare)) {
@@ -355,10 +379,7 @@ Expression *parse_operand(Parser *p) {
         return nullptr;
       }
 
-      Expression *xvar_expression = new Expression();
-      xvar_expression->kind       = ExpressionKind::XVar;
-      xvar_expression->xvar       = actual_variable_index;
-      return xvar_expression;
+      return result;
     } else {
       Expression *lvar_expression = new Expression();
       lvar_expression->kind       = ExpressionKind::LVar;
@@ -469,6 +490,50 @@ BasicBlock *parse_if(Parser *p, BasicBlock *entry_bb) {
   return exit_bb;
 }
 
+Result parse_for(Parser *p, Instruction *instruction) {
+  assert(check_peek(p, TokenKind::For));
+  if (!next(p)) return err; // next for
+
+  instruction->kind = InstructionKind::Loop;
+
+  if (!check_peek(p, TokenKind::Ident)) {
+    error("line %d: expected name for iterator variable\n", p->line);
+    return err;
+  }
+  Span iterator_name               = peek(p)->value;
+  std::string iterator_name_string = span_to_string(p, iterator_name);
+  if (!next(p)) return err; // next 'ident'
+  auto it = p->index_variable_map.find(iterator_name_string);
+  if (it == p->index_variable_map.end()) {
+    instruction->loop.indexvar = p->index_variable_count;
+    p->index_variable_map.insert(std::make_pair(iterator_name_string, p->index_variable_count++));
+  } else {
+    instruction->loop.indexvar = it->second;
+  }
+
+  if (!check_peek(p, TokenKind::In)) {
+    error("line %d: expected 'in' keyword after for loop index variable\n", p->line);
+    return err;
+  }
+  if (!next(p)) return err; // next in
+
+  if (!check_peek(p, TokenKind::Intlit)) {
+    error("line %d: expected number for for loop range\n", p->line);
+    return err;
+  }
+  instruction->loop.length = peek(p)->intlit;
+  if (!next(p)) return err; // next 'intlit'
+
+  instruction->loop.inner_bb = new_block(p);
+  BasicBlock *exit_bb        = parse_block(p, instruction->loop.inner_bb);
+  if (!exit_bb) return err;
+
+  if (exit_bb->terminator_kind == TerminatorKind::None) {
+    exit_bb->terminator_kind = TerminatorKind::End;
+  }
+  return ok;
+}
+
 BasicBlock *parse_block(Parser *p, BasicBlock *entry_bb) {
   assert(check_peek(p, TokenKind::LCurl));
   if (!next(p)) return nullptr; // next {
@@ -477,7 +542,8 @@ BasicBlock *parse_block(Parser *p, BasicBlock *entry_bb) {
 
   for (;;) {
     if (current_bb->terminator_kind == TerminatorKind::Return) {
-      error("line %d: statement cannot exist after return", p->line);
+      error("line %d: statement cannot exist after return\n", p->line);
+      return nullptr;
     }
     switch (peek(p)->kind) {
     case TokenKind::Ident: {
@@ -515,7 +581,10 @@ BasicBlock *parse_block(Parser *p, BasicBlock *entry_bb) {
       current_bb = if_exit_bb;
       break;
     }
-    case TokenKind::For: assert(!"TODO: parse loop"); break;
+    case TokenKind::For:
+      current_bb->insts.push_back({});
+      if (parse_for(p, &current_bb->insts.back())) return nullptr;
+      break;
     case TokenKind::Return:
       if (!next(p)) return nullptr; // next return
 
@@ -685,6 +754,7 @@ Result parse_to_cfg(CFG *out_cfg, cstr filepath) {
   Parser lex;
   lex.variable_count       = 0;
   lex.local_variable_count = 0;
+  lex.index_variable_count = 0;
   lex.block_count          = 0;
   lex.index                = 0;
   lex.tlength              = 0;

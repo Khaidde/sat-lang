@@ -9,14 +9,15 @@ namespace slang {
 
 // clang-format off
 #define EXPRESSION_KIND(pick) \
-  pick(None,  "'None'"), \
-  pick(False, "False"), \
-  pick(True,  "True"), \
-  pick(XVar,  "XVar"), \
-  pick(LVar,  "LVar"), \
-  pick(Not,   "Not"), \
-  pick(And,   "And"), \
-  pick(Or,    "Or"),
+  pick(None,    "'None'"), \
+  pick(False,   "False"), \
+  pick(True,    "True"), \
+  pick(LVar,    "LVar"), \
+  pick(Not,     "Not"), \
+  pick(And,     "And"), \
+  pick(Or,      "Or"), \
+  pick(GridRef, "GridRef"), \
+  pick(Index,   "Index"),
 DECLARE_KIND(EXPRESSION_KIND, ExpressionKind);
 
 struct Expression;
@@ -30,22 +31,37 @@ struct BinaryExpression {
   Expression *right;
 };
 
+struct IndexExpression {
+  i32 dimension_size;
+
+  Expression *inner;
+
+  bool is_constant;
+  union {
+    i32 indexvar;
+    i32 constant_index;
+  };
+};
+
 struct Expression {
   ExpressionKind::Enum kind;
   union {
-    i32 xvar;
     i32 lvar;
     UnaryExpression unary;
     BinaryExpression binary;
+    i32 grid_start_variable;
+    IndexExpression index;
   };
 };
 
 // clang-format off
 #define INSTRUCTION_KIND(pick) \
-  pick(Assign, "Assign"),
+  pick(Assign, "Assign"), \
+  pick(Loop,   "Loop"),
 DECLARE_KIND(INSTRUCTION_KIND, InstructionKind);
 // clang-format on
 
+struct BasicBlock;
 struct Instruction;
 
 struct AssignInstruction {
@@ -53,10 +69,17 @@ struct AssignInstruction {
   Expression *right_value_expression;
 };
 
+struct LoopInstruction {
+  i32 indexvar;
+  i32 length;
+  BasicBlock *inner_bb;
+};
+
 struct Instruction {
   InstructionKind::Enum kind;
   union {
     AssignInstruction assign;
+    LoopInstruction loop;
   };
 };
 
@@ -65,11 +88,10 @@ struct Instruction {
   pick(None,   "None"), \
   pick(Goto,   "Goto"), \
   pick(Branch, "Branch"), \
-  pick(Return, "Return"),
+  pick(Return, "Return"), \
+  pick(End,    "End"),
 DECLARE_KIND(TERMINATOR_KIND, TerminatorKind);
 // clang-format on
-
-struct BasicBlock;
 
 struct GotoTerminator {
   BasicBlock *goto_bb;
