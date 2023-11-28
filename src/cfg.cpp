@@ -16,6 +16,7 @@ void dump_expression(Expression *expression) {
   case ExpressionKind::False: printf("false"); break;
   case ExpressionKind::True: printf("true"); break;
   case ExpressionKind::XVar: printf("x%d", expression->xvar); break;
+  case ExpressionKind::LVar: printf("lv%d", expression->xvar); break;
   case ExpressionKind::Not:
     printf("!");
     dump_expression(expression->unary.inner);
@@ -45,11 +46,7 @@ void dump_cfg(CFG *cfg) {
     printf("  %d [shape=record,label=\"bb%d", bb->id, bb->id);
     for (auto &inst : bb->insts) {
       assert(inst.kind == InstructionKind::Assign);
-      printf("\\n");
-      for (i32 i = 0; i < inst.assign.variable_name.length; ++i) {
-        printf("%c", cfg->file_data[inst.assign.variable_name.index + i]);
-      }
-      printf(" = ");
+      printf("\\nlv%d = ", inst.assign.localvar);
       dump_expression(inst.assign.right_value_expression);
     }
     switch (bb->terminator_kind) {
@@ -78,10 +75,21 @@ void dump_cfg(CFG *cfg) {
   printf("}\n");
 }
 
+struct Scope {
+  Scope *parent;
+  std::vector<AssignInstruction> local_variable_context;
+};
+
 SAT_Expression literal_1{1};
 SAT_Expression not_literal_1{Operator::NOT, nullptr, &literal_1};
 SAT_Expression false_sat{Operator::AND, &literal_1, &not_literal_1};
 SAT_Expression true_sat{Operator::OR, &literal_1, &not_literal_1};
+
+SAT_Expression *new_not(SAT_Expression *inner) {
+  if (inner == &false_sat) return &true_sat;
+  if (inner == &true_sat) return &false_sat;
+  return new SAT_Expression(Operator::NOT, nullptr, inner);
+}
 
 SAT_Expression *new_and(SAT_Expression *left, SAT_Expression *right) {
   if (left == &false_sat || right == &false_sat) return &false_sat;
@@ -97,32 +105,57 @@ SAT_Expression *new_or(SAT_Expression *left, SAT_Expression *right) {
   return new SAT_Expression(Operator::OR, left, right);
 }
 
-SAT_Expression *translate_expression_to_sat(Expression *expression) {
+Expression *find_local_variable_value(Scope *scope, i32 variable_id) {
+  if (!scope) return nullptr;
+  for (auto lvar : scope->local_variable_context) {
+    if (lvar.localvar == variable_id) return lvar.right_value_expression;
+  }
+  return find_local_variable_value(scope->parent, variable_id);
+}
+
+SAT_Expression *translate_expression_to_sat(Scope *scope, Expression *expression) {
   switch (expression->kind) {
   case ExpressionKind::False: return &false_sat;
   case ExpressionKind::True: return &true_sat;
   case ExpressionKind::XVar:
-    // increase by 1 so that variable 0 is never created
-    return new SAT_Expression(expression->xvar + 1);
+    return new SAT_Expression(expression->xvar + 1); // increase by 1 so that variable 0 is never created
+  case ExpressionKind::LVar:
+    return translate_expression_to_sat(scope, find_local_variable_value(scope, expression->lvar));
+  case ExpressionKind::And:
+    return new_and(translate_expression_to_sat(scope, expression->binary.left),
+                   translate_expression_to_sat(scope, expression->binary.right));
+  case ExpressionKind::Or:
+    return new_or(translate_expression_to_sat(scope, expression->binary.left),
+                  translate_expression_to_sat(scope, expression->binary.right));
   default: assert(!"TODO: unimplemented translation of expression to sat"); return nullptr;
   }
 }
 
-SAT_Expression *translate_block_to_sat(BasicBlock *bb) {
+SAT_Expression *translate_block_to_sat(Scope *parent_scope, BasicBlock *bb) {
+  Scope scope;
+  scope.parent = parent_scope;
+
+  for (auto &inst : bb->insts) {
+    switch (inst.kind) {
+    case InstructionKind::Assign: scope.local_variable_context.push_back(inst.assign); break;
+    default: assert(!"TODO: unimplemented translation of block statement"); break;
+    }
+  }
+
   switch (bb->terminator_kind) {
-  case TerminatorKind::Goto: return translate_block_to_sat(bb->go.goto_bb); break;
+  case TerminatorKind::Goto: return translate_block_to_sat(&scope, bb->go.goto_bb); break;
   case TerminatorKind::Branch: {
-    SAT_Expression *cond     = translate_expression_to_sat(bb->branch.condition_expression);
-    SAT_Expression *not_cond = new SAT_Expression(Operator::NOT, nullptr, cond);
-    SAT_Expression *then_sat = new_and(cond, translate_block_to_sat(bb->branch.then_bb));
-    SAT_Expression *else_sat = new_and(not_cond, translate_block_to_sat(bb->branch.else_bb));
+    SAT_Expression *cond     = translate_expression_to_sat(&scope, bb->branch.condition_expression);
+    SAT_Expression *not_cond = new_not(cond);
+    SAT_Expression *then_sat = new_and(cond, translate_block_to_sat(&scope, bb->branch.then_bb));
+    SAT_Expression *else_sat = new_and(not_cond, translate_block_to_sat(&scope, bb->branch.else_bb));
     return new_or(then_sat, else_sat);
   }
-  case TerminatorKind::Return: return translate_expression_to_sat(bb->ret.return_expression); break;
+  case TerminatorKind::Return: return translate_expression_to_sat(&scope, bb->ret.return_expression); break;
   default: assert(!"Unreachable"); break;
   }
 }
 
-SAT_Expression *generate_sat(CFG *cfg) { return translate_block_to_sat(cfg->entry_bb); }
+SAT_Expression *generate_sat(CFG *cfg) { return translate_block_to_sat(nullptr, cfg->entry_bb); }
 
 } // namespace slang

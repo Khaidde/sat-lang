@@ -9,6 +9,7 @@ namespace slang {
 // clang-format off
 #define TOKEN_KIND(pick) \
   pick(Ident,    "'identifier'"), \
+  pick(Dot,      "."), \
   pick(Assign,   "="), \
   pick(Not,      "!"), \
   pick(And,      "&&"), \
@@ -22,8 +23,8 @@ namespace slang {
   pick(Intlit,   "'intlit'"), \
   pick(False,    "false"), \
   pick(True,     "true"), \
+  pick(Grid,     "grid"), \
   pick(Property, "property"), \
-  pick(Object,   "object"), \
   pick(Function, "function"), \
   pick(If,       "if"), \
   pick(Else,     "else"), \
@@ -43,28 +44,24 @@ struct Token {
   };
 };
 
-struct ValueList {
+struct Property {
   std::vector<Span> values;
 };
 
-struct ValuesDatabase {
-  std::unordered_map<std::string, i32> map;
-  std::vector<ValueList> list;
-};
-
 struct Grid {
-  i32 object_id;
   std::vector<i32> dimensions;
-
-  i32 object_instance_start_index;
+  i32 variable_start_index;
 };
 
 struct Parser {
-  ValuesDatabase properties;
-  ValuesDatabase objects;
+  std::unordered_map<std::string, i32> property_map;
+  std::vector<Property> properties;
 
-  i32 object_count;
+  i32 variable_count;
   std::unordered_map<std::string, Grid> grids;
+
+  i32 local_variable_count;
+  std::unordered_map<std::string, i32> local_variable_map;
 
   i32 block_count;
 
@@ -124,8 +121,8 @@ char peek_char(Parser *p) {
 TokenKind::Enum keywords[] {
   TokenKind::False,
   TokenKind::True,
+  TokenKind::Grid,
   TokenKind::Property,
-  TokenKind::Object,
   TokenKind::Function,
   TokenKind::If,
   TokenKind::Else,
@@ -174,6 +171,7 @@ Token *next(Parser *p) {
   }
 
   switch (char c = peek_char(p)) {
+  case '.': ++p->tlength; return create_token(p, TokenKind::Dot);
   case '=': ++p->tlength; return create_token(p, TokenKind::Assign);
   case '!': ++p->tlength; return create_token(p, TokenKind::Not);
   case '&':
@@ -272,113 +270,76 @@ Expression *parse_operand(Parser *p) {
 
       i32 expected_dimensions = (i32)grid_ptr->dimensions.size();
 
-      i32 actual_variable_index      = 0;
+      i32 actual_variable_index      = grid_ptr->variable_start_index;
       i32 accumulated_dimension_size = 1;
       i32 dimension_index            = 0;
-      i32 property_index             = -1;
-      while (dimension_index < expected_dimensions + 2) {
+      for (;;) {
         if (check_peek(p, TokenKind::Err)) return nullptr;
         if (!check_peek(p, TokenKind::LSquare)) break;
         if (!next(p)) return nullptr; // next [
 
-        if (dimension_index < expected_dimensions) {
-          if (!check_peek(p, TokenKind::Intlit)) {
-            error("line %d: expected integer literal for grid index\n", p->line);
-            return nullptr;
-          }
-          i32 dimension_value = peek(p)->intlit;
-          if (!next(p))
-            return nullptr; // next 'intlit'
-                            //
-          i32 dimension_size = grid_ptr->dimensions[(u32)dimension_index];
-          if (dimension_value >= dimension_size) {
-            error("line %d: access of %d out of bounds of dimension size %d\n", p->line, dimension_value,
-                  dimension_size);
-            return nullptr;
-          }
-          actual_variable_index += accumulated_dimension_size * dimension_value;
-          accumulated_dimension_size *= dimension_size;
-        } else if (dimension_index == expected_dimensions) {
-          std::vector<Span> *property_list = &p->objects.list[(u32)grid_ptr->object_id].values;
-
-          switch (peek(p)->kind) {
-          case TokenKind::Intlit:
-            property_index = peek(p)->intlit;
-            if (!next(p)) return nullptr; // next 'intlit'
-
-            if (property_index >= (i32)property_list->size()) {
-              error("line %d: access of %d out of bounds of number of properties in object which is %d\n", p->line,
-                    property_index, property_list->size());
-              return nullptr;
-            }
-            break;
-          case TokenKind::Ident: {
-            Span property_name = peek(p)->value;
-            for (i32 i = 0; i < (i32)property_list->size(); ++i) {
-              if (is_span_equal(p, property_list->at((u32)i), property_name)) {
-                property_index = i;
-                break;
-              }
-            }
-            if (property_index == -1) {
-              std::string property_name_string = span_to_string(p, property_name);
-              error("line %d: could not find property name %s in grid %s\n", p->line, property_name_string.c_str(),
-                    name_string.c_str());
-              return nullptr;
-            }
-
-            if (!next(p)) return nullptr; // next 'ident'
-            break;
-          }
-          default:
-            error("line %d: expected integer literal or property name for grid index\n", p->line);
-            return nullptr;
-          }
-          assert(property_index != -1);
-          actual_variable_index += accumulated_dimension_size * property_index;
-          accumulated_dimension_size *= property_list->size();
-          printf("Property: %d\n", property_index);
-        } else if (dimension_index == expected_dimensions + 1) {
-          assert(property_index != -1);
-
-          std::vector<Span> *value_list = &p->properties.list[(u32)property_index].values;
-
-          i32 value_index = -1;
-          switch (peek(p)->kind) {
-          case TokenKind::Intlit:
-            value_index = peek(p)->intlit;
-            if (!next(p)) return nullptr; // next 'intlit'
-
-            if (value_index >= (i32)value_list->size()) {
-              error("line %d: access of %d out of bounds of number of values in property which is %d\n", p->line,
-                    value_index, value_list->size());
-              return nullptr;
-            }
-            break;
-          case TokenKind::Ident: {
-            Span value_name = peek(p)->value;
-            for (i32 i = 0; i < (i32)value_list->size(); ++i) {
-              if (is_span_equal(p, value_list->at((u32)i), value_name)) {
-                value_index = i;
-                break;
-              }
-            }
-            if (value_index == -1) {
-              std::string value_name_string = span_to_string(p, value_name);
-              error("line %d: could not find value name %s for given property\n", p->line, value_name_string.c_str());
-              return nullptr;
-            }
-
-            if (!next(p)) return nullptr; // next 'ident'
-            break;
-          }
-          default: error("line %d: expected integer literal or value name\n", p->line); return nullptr;
-          }
-          assert(value_index != -1);
-          actual_variable_index += accumulated_dimension_size * value_index;
-          accumulated_dimension_size *= value_list->size();
-          printf("Value: %d\n", value_index);
+        if (dimension_index >= expected_dimensions) {
+          error("line %d: indexing with more dimensions than the expected of %d\n", p->line, expected_dimensions);
+          return nullptr;
         }
+
+        int index_value = -1;
+        switch (peek(p)->kind) {
+        case TokenKind::Intlit:
+          index_value = peek(p)->intlit;
+          if (!next(p)) return nullptr; // next 'intlit'
+          break;
+        case TokenKind::Ident: {
+          Span property_name               = peek(p)->value;
+          std::string property_name_string = span_to_string(p, property_name);
+          if (!next(p)) return nullptr; // next 'intlit'
+
+          auto it = p->property_map.find(property_name_string);
+          if (it == p->property_map.end()) {
+            error("line %d: could not find property %s\n", p->line, property_name_string.c_str());
+            return nullptr;
+          }
+
+          Property *property = &p->properties[(u32)it->second];
+
+          if (!check_peek(p, TokenKind::Dot)) {
+            error("line %d: expected . after property name", p->line);
+            return nullptr;
+          }
+          if (!next(p)) return nullptr; // next .
+
+          if (!check_peek(p, TokenKind::Ident)) {
+            error("line %d: expected property value name after .", p->line);
+            return nullptr;
+          }
+          Span value_name               = peek(p)->value;
+          std::string value_name_string = span_to_string(p, value_name);
+          if (!next(p)) return nullptr; // next 'ident'
+
+          for (i32 i = 0; i < (i32)property->values.size(); ++i) {
+            if (is_span_equal(p, value_name, property->values[(u32)i])) {
+              index_value = i;
+              break;
+            }
+          }
+          if (index_value == -1) {
+            error("line %d: could not find value %s in property %s \n", p->line, value_name_string.c_str(),
+                  property_name_string.c_str());
+            return nullptr;
+          }
+          break;
+        }
+        default: error("line %d: expected integer literal or property value for grid index\n", p->line); return nullptr;
+        }
+        assert(index_value != -1);
+
+        i32 dimension_size = grid_ptr->dimensions[(u32)dimension_index];
+        if (index_value >= dimension_size) {
+          error("line %d: access of %d out of bounds of dimension size %d\n", p->line, index_value, dimension_size);
+          return nullptr;
+        }
+        actual_variable_index += accumulated_dimension_size * index_value;
+        accumulated_dimension_size *= dimension_size;
 
         if (!check_peek(p, TokenKind::RSquare)) {
           error("line %d: expected ] for grid index\n", p->line);
@@ -389,9 +350,8 @@ Expression *parse_operand(Parser *p) {
         ++dimension_index;
       }
 
-      if (dimension_index != expected_dimensions + 2) {
-        error("line %d: expected %d accesses into grid but found %d\n", p->line, expected_dimensions + 2,
-              dimension_index);
+      if (dimension_index != expected_dimensions) {
+        error("line %d: expected %d accesses into grid but found %d\n", p->line, expected_dimensions, dimension_index);
         return nullptr;
       }
 
@@ -400,9 +360,17 @@ Expression *parse_operand(Parser *p) {
       xvar_expression->xvar       = actual_variable_index;
       return xvar_expression;
     } else {
-      assert(!"TODO: handle local variable thingy");
+      Expression *lvar_expression = new Expression();
+      lvar_expression->kind       = ExpressionKind::LVar;
+
+      auto it = p->local_variable_map.find(name_string);
+      if (it == p->local_variable_map.end()) {
+        error("line %d: could not find local variable definition for %s\n", p->line, name_string.c_str());
+        return nullptr;
+      }
+      lvar_expression->lvar = it->second;
+      return lvar_expression;
     }
-    return nullptr; // TODO: delete this
     break;
   }
   default:
@@ -514,9 +482,19 @@ BasicBlock *parse_block(Parser *p, BasicBlock *entry_bb) {
     switch (peek(p)->kind) {
     case TokenKind::Ident: {
       Instruction assignment_inst;
-      assignment_inst.kind                 = InstructionKind::Assign;
-      assignment_inst.assign.variable_name = peek(p)->value;
+      assignment_inst.kind = InstructionKind::Assign;
+
+      Span local_variable_name = peek(p)->value;
       if (!next(p)) return nullptr; // next 'ident'
+
+      std::string local_variable_name_string = span_to_string(p, local_variable_name);
+      auto it                                = p->local_variable_map.find(local_variable_name_string);
+      if (it == p->local_variable_map.end()) {
+        assignment_inst.assign.localvar = p->local_variable_count;
+        p->local_variable_map.insert(std::make_pair(local_variable_name_string, p->local_variable_count++));
+      } else {
+        assignment_inst.assign.localvar = it->second;
+      }
 
       if (!check_peek(p, TokenKind::Assign)) {
         cstr unexpected_kind = TokenKind::to_string[peek(p)->kind];
@@ -583,47 +561,6 @@ BasicBlock *parse_function(Parser *p) {
   return entry_bb;
 }
 
-Result parse_value_list(Parser *p, ValuesDatabase *value_db) {
-  if (!check_peek(p, TokenKind::Ident)) {
-    error("line %d: expected name for global\n", p->line);
-    return err;
-  }
-  std::string name_string = span_to_string(p, peek(p)->value);
-  if (!next(p)) return err; // next 'ident'
-
-  if (value_db->map.find(name_string) != value_db->map.end()) {
-    error("line %d: duplicate name found for %s\n", p->line, name_string.c_str());
-    return err;
-  }
-
-  ValueList new_value_list;
-  value_db->map.insert(std::make_pair(name_string, value_db->list.size()));
-  value_db->list.push_back(new_value_list);
-
-  ValueList *value_list_ptr = &value_db->list.back();
-  if (!check_peek(p, TokenKind::LCurl)) {
-    error("line %d: expected { after global name\n", p->line);
-    return err;
-  }
-  if (!next(p)) return err; // next {
-
-  while (!check_peek(p, TokenKind::RCurl)) {
-    if (check_peek(p, TokenKind::Err)) return err;
-    if (!check_peek(p, TokenKind::Ident)) {
-      error("line %d: expected another name in value list\n", p->line);
-      return err;
-    }
-
-    value_list_ptr->values.push_back(peek(p)->value);
-
-    if (!next(p)) return err; // next 'ident'
-  }
-  assert(check_peek(p, TokenKind::RCurl));
-  if (!next(p)) return err; // next '}'
-
-  return ok;
-}
-
 BasicBlock *parse_file(Parser *p) {
   if (!next(p)) return nullptr; // consume the first token
 
@@ -643,24 +580,48 @@ BasicBlock *parse_file(Parser *p) {
       break;
     case TokenKind::Property: {
       if (!next(p)) return nullptr; // next property
-      if (parse_value_list(p, &p->properties)) return nullptr;
-      break;
-    }
-    case TokenKind::Object:
-      if (!next(p)) return nullptr; // next object
-      if (parse_value_list(p, &p->objects)) return nullptr;
-      break;
-    case TokenKind::Ident: {
-      std::string object_name_string = span_to_string(p, peek(p)->value);
+
+      if (!check_peek(p, TokenKind::Ident)) {
+        error("line %d: expected name for property\n", p->line);
+        return nullptr;
+      }
+      std::string name_string = span_to_string(p, peek(p)->value);
       if (!next(p)) return nullptr; // next 'ident'
 
-      auto it = p->objects.map.find(object_name_string);
-      if (it == p->objects.map.end()) {
-        error("line %d: unknown object name %s\n", p->line, object_name_string.c_str());
+      if (p->property_map.find(name_string) != p->property_map.end()) {
+        error("line %d: duplicate property name found for %s\n", p->line, name_string.c_str());
         return nullptr;
       }
 
-      auto object_id = it->second;
+      Property new_property;
+      p->property_map.insert(std::make_pair(name_string, p->properties.size()));
+      p->properties.push_back(new_property);
+
+      Property *new_property_ptr = &p->properties.back();
+      if (!check_peek(p, TokenKind::LCurl)) {
+        error("line %d: expected { after property name\n", p->line);
+        return nullptr;
+      }
+      if (!next(p)) return nullptr; // next {
+
+      while (!check_peek(p, TokenKind::RCurl)) {
+        if (check_peek(p, TokenKind::Err)) return nullptr;
+        if (!check_peek(p, TokenKind::Ident)) {
+          error("line %d: expected another name in property value list\n", p->line);
+          return nullptr;
+        }
+
+        new_property_ptr->values.push_back(peek(p)->value);
+
+        if (!next(p)) return nullptr; // next 'ident'
+      }
+      assert(check_peek(p, TokenKind::RCurl));
+      if (!next(p)) return nullptr; // next '}'
+
+      break;
+    }
+    case TokenKind::Grid: {
+      if (!next(p)) return nullptr; // next 'grid'
 
       if (!check_peek(p, TokenKind::Ident)) {
         error("line %d: expected name for grid\n", p->line);
@@ -675,9 +636,8 @@ BasicBlock *parse_file(Parser *p) {
       }
 
       p->grids.insert(std::make_pair(grid_name_string, Grid{}));
-      Grid *new_grid_ptr                        = &p->grids[grid_name_string];
-      new_grid_ptr->object_id                   = object_id;
-      new_grid_ptr->object_instance_start_index = p->object_count;
+      Grid *new_grid_ptr                 = &p->grids[grid_name_string];
+      new_grid_ptr->variable_start_index = p->variable_count;
 
       i32 grid_size = 1;
       for (;;) {
@@ -707,7 +667,7 @@ BasicBlock *parse_file(Parser *p) {
         error("line %d: expected grid to have at least one dimension\n", p->line);
         return nullptr;
       }
-      p->object_count += grid_size;
+      p->variable_count += grid_size;
       debug("created grid %s with %d variables\n", grid_name_string.c_str(), grid_size);
 
       break;
@@ -723,13 +683,14 @@ BasicBlock *parse_file(Parser *p) {
 
 Result parse_to_cfg(CFG *out_cfg, cstr filepath) {
   Parser lex;
-  lex.object_count = 0;
-  lex.block_count  = 0;
-  lex.index        = 0;
-  lex.tlength      = 0;
-  lex.line         = 1;
-  lex.data         = nullptr;
-  lex.file_length  = 0;
+  lex.variable_count       = 0;
+  lex.local_variable_count = 0;
+  lex.block_count          = 0;
+  lex.index                = 0;
+  lex.tlength              = 0;
+  lex.line                 = 1;
+  lex.data                 = nullptr;
+  lex.file_length          = 0;
 
   auto *fstream = fopen(filepath, "rb");
   if (!fstream) {

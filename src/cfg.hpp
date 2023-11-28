@@ -13,6 +13,7 @@ namespace slang {
   pick(False, "False"), \
   pick(True,  "True"), \
   pick(XVar,  "XVar"), \
+  pick(LVar,  "LVar"), \
   pick(Not,   "Not"), \
   pick(And,   "And"), \
   pick(Or,    "Or"),
@@ -33,6 +34,7 @@ struct Expression {
   ExpressionKind::Enum kind;
   union {
     i32 xvar;
+    i32 lvar;
     UnaryExpression unary;
     BinaryExpression binary;
   };
@@ -47,7 +49,7 @@ DECLARE_KIND(INSTRUCTION_KIND, InstructionKind);
 struct Instruction;
 
 struct AssignInstruction {
-  Span variable_name;
+  i32 localvar;
   Expression *right_value_expression;
 };
 

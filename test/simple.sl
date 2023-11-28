@@ -15,27 +15,19 @@ property Pet {
   Horse
 }
 
-object House {
-  Color
-  Pet
-}
+grid house_color[5]
 
-House neighborhood[16][16]
+grid house_pet[5]
 
 function is_sat {
-  x = false
+  x = true
 
-  if neighborhood[4][1][0][Green] {
-    return neighborhood[1][1][Pet][Cat]
+  if house_color[Color.Blue] {
+    x = house_color[Color.Red]
   }
-  if neighborhood[4][1][0][Green] {
-    return neighborhood[1][1][Pet][Cat]
+  if house_pet[Pet.Dog] {
+    return x
   }
-  if neighborhood[4][1][0][Green] {
-    return neighborhood[1][1][Pet][Cat]
-  }
-  if neighborhood[4][1][0][Green] {
-    return neighborhood[1][1][Pet][Cat]
-  }
+
   return true
 }
