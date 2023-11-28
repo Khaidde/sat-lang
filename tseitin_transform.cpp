@@ -43,6 +43,7 @@ int convert_to_prop(SAT_Expression *expression,
         if (it != expressionMap.end())
         {
             // already have a mapping
+            std::cout << "reused mapping\n";
             int value = it->second;
             return value;
         }
