@@ -14,5 +14,8 @@ int main(int argc, char **argv) {
 
   slang::dump_cfg(&cfg);
 
+  auto *sat_expression = slang::generate_sat(&cfg);
+  sat_expression->display();
+
   return ok;
 }

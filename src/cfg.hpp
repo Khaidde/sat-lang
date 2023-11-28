@@ -2,6 +2,7 @@
 #define CFG_HPP
 
 #include "general.hpp"
+#include "sat_syntax_tree.hpp"
 #include <vector>
 
 namespace slang {
@@ -101,6 +102,8 @@ struct CFG {
 };
 
 void dump_cfg(CFG *cfg);
+
+SAT_Expression *generate_sat(CFG *cfg);
 
 } // namespace slang
 

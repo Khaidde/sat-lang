@@ -479,8 +479,10 @@ BasicBlock *parse_if(Parser *p, BasicBlock *entry_bb) {
   entry_bb->branch.then_bb = new_block(p);
   BasicBlock *then_exit_bb = parse_block(p, entry_bb->branch.then_bb);
   if (!then_exit_bb) return nullptr;
-  then_exit_bb->terminator_kind = TerminatorKind::Goto;
-  then_exit_bb->go.goto_bb      = exit_bb;
+  if (then_exit_bb->terminator_kind != TerminatorKind::Return) {
+    then_exit_bb->terminator_kind = TerminatorKind::Goto;
+    then_exit_bb->go.goto_bb      = exit_bb;
+  }
 
   if (check_peek(p, TokenKind::Else)) {
     if (!next(p)) return nullptr; // next else
@@ -488,8 +490,10 @@ BasicBlock *parse_if(Parser *p, BasicBlock *entry_bb) {
     entry_bb->branch.else_bb = new_block(p);
     BasicBlock *else_exit_bb = parse_block(p, entry_bb->branch.else_bb);
     if (!else_exit_bb) return nullptr;
-    else_exit_bb->terminator_kind = TerminatorKind::Goto;
-    else_exit_bb->go.goto_bb      = exit_bb;
+    if (else_exit_bb->terminator_kind != TerminatorKind::Return) {
+      else_exit_bb->terminator_kind = TerminatorKind::Goto;
+      else_exit_bb->go.goto_bb      = exit_bb;
+    }
   } else {
     entry_bb->branch.else_bb = exit_bb;
   }

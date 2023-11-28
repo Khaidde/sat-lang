@@ -23,11 +23,19 @@ object House {
 House neighborhood[16][16]
 
 function is_sat {
-  x = !true && false || !true
+  x = false
 
-  if false || !true {
-    y = neighborhood[4][1][Color][Red]
+  if neighborhood[4][1][0][Green] {
+    return neighborhood[1][1][Pet][Cat]
   }
-  y = neighborhood[4][1][0][Green]
+  if neighborhood[4][1][0][Green] {
+    return neighborhood[1][1][Pet][Cat]
+  }
+  if neighborhood[4][1][0][Green] {
+    return neighborhood[1][1][Pet][Cat]
+  }
+  if neighborhood[4][1][0][Green] {
+    return neighborhood[1][1][Pet][Cat]
+  }
   return true
 }

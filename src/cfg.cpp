@@ -78,4 +78,51 @@ void dump_cfg(CFG *cfg) {
   printf("}\n");
 }
 
+SAT_Expression literal_1{1};
+SAT_Expression not_literal_1{Operator::NOT, nullptr, &literal_1};
+SAT_Expression false_sat{Operator::AND, &literal_1, &not_literal_1};
+SAT_Expression true_sat{Operator::OR, &literal_1, &not_literal_1};
+
+SAT_Expression *new_and(SAT_Expression *left, SAT_Expression *right) {
+  if (left == &false_sat || right == &false_sat) return &false_sat;
+  if (left == &true_sat) return right;
+  if (right == &true_sat) return left;
+  return new SAT_Expression(Operator::AND, left, right);
+}
+
+SAT_Expression *new_or(SAT_Expression *left, SAT_Expression *right) {
+  if (left == &true_sat || right == &true_sat) return &true_sat;
+  if (left == &false_sat) return right;
+  if (right == &false_sat) return left;
+  return new SAT_Expression(Operator::OR, left, right);
+}
+
+SAT_Expression *translate_expression_to_sat(Expression *expression) {
+  switch (expression->kind) {
+  case ExpressionKind::False: return &false_sat;
+  case ExpressionKind::True: return &true_sat;
+  case ExpressionKind::XVar:
+    // increase by 1 so that variable 0 is never created
+    return new SAT_Expression(expression->xvar + 1);
+  default: assert(!"TODO: unimplemented translation of expression to sat"); return nullptr;
+  }
+}
+
+SAT_Expression *translate_block_to_sat(BasicBlock *bb) {
+  switch (bb->terminator_kind) {
+  case TerminatorKind::Goto: return translate_block_to_sat(bb->go.goto_bb); break;
+  case TerminatorKind::Branch: {
+    SAT_Expression *cond     = translate_expression_to_sat(bb->branch.condition_expression);
+    SAT_Expression *not_cond = new SAT_Expression(Operator::NOT, nullptr, cond);
+    SAT_Expression *then_sat = new_and(cond, translate_block_to_sat(bb->branch.then_bb));
+    SAT_Expression *else_sat = new_and(not_cond, translate_block_to_sat(bb->branch.else_bb));
+    return new_or(then_sat, else_sat);
+  }
+  case TerminatorKind::Return: return translate_expression_to_sat(bb->ret.return_expression); break;
+  default: assert(!"Unreachable"); break;
+  }
+}
+
+SAT_Expression *generate_sat(CFG *cfg) { return translate_block_to_sat(cfg->entry_bb); }
+
 } // namespace slang
