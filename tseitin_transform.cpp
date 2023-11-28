@@ -175,6 +175,7 @@ int getNumberOfVariables(const std::vector<std::vector<int>> &cnf)
         for (const auto &literal : clause)
         {
             int variable = std::abs(literal);
+            assert(variable != 0); // 0 is not a valid variable
             maxVariable = std::max(maxVariable, variable);
         }
     }
